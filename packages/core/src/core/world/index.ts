@@ -92,7 +92,7 @@ import { Sky, SkyOptions } from "./sky";
 import { AtlasTexture } from "./textures";
 import { UV } from "./uv";
 import LightWorker from "./workers/light-worker.ts?worker&inline";
-import MeshWorker from "./workers/mesh-worker.ts?worker";
+import MeshWorker from "./workers/mesh-worker.ts?worker&inline";
 
 export * from "./block";
 export * from "./chunk";
@@ -2721,6 +2721,7 @@ export class World<T = any> extends Scene implements NetIntercept {
         }
 
         const nBlock = this.getBlockAt(nvx, nvy, nvz);
+        if (!nBlock) continue;
         const rotation = this.getVoxelRotationAt(nvx, nvy, nvz);
         const nTransparency = BlockUtils.getBlockRotatedTransparency(
           nBlock,
@@ -2817,6 +2818,7 @@ export class World<T = any> extends Scene implements NetIntercept {
         const nvz = vz + oz;
 
         const nBlock = this.getBlockAt(nvx, nvy, nvz);
+        if (!nBlock) continue;
         const rotation = this.getVoxelRotationAt(nvx, nvy, nvz);
         const nTransparency = BlockUtils.getBlockRotatedTransparency(
           nBlock,
@@ -3705,6 +3707,9 @@ export class World<T = any> extends Scene implements NetIntercept {
         });
 
         chunk.dispose();
+        // Fix: Remove the chunk's group from the scene to prevent memory leak
+        // The group was added in buildChunkLocally() but never removed
+        this.remove(chunk.group);
         this.meshPipeline.remove(x, z);
         toRemove.push(name);
         deleted.push(chunk.coords);
@@ -4588,6 +4593,7 @@ export class World<T = any> extends Scene implements NetIntercept {
           const nvz = vz + oz;
 
           const nBlock = this.getBlockAt(nvx, nvy, nvz);
+          if (!nBlock) continue;
           const nRotation = this.getVoxelRotationAt(nvx, nvy, nvz);
           const nTransparency = BlockUtils.getBlockRotatedTransparency(
             nBlock,
@@ -4746,6 +4752,7 @@ export class World<T = any> extends Scene implements NetIntercept {
           const nvz = vz + oz;
 
           const nBlock = this.getBlockAt(nvx, nvy, nvz);
+          if (!nBlock) continue;
           const nRotation = this.getVoxelRotationAt(nvx, nvy, nvz);
           const nTransparency = BlockUtils.getBlockRotatedTransparency(
             nBlock,
@@ -4913,6 +4920,19 @@ export class World<T = any> extends Scene implements NetIntercept {
       }
     } else if (lightOps.hasOperations) {
       this.executeLightOperationsSyncAll(lightOps);
+    } else {
+      // FIX: Even if no light operations needed, still mark affected chunks for remesh
+      // This handles cases where blocks are updated but don't affect lighting
+      // (e.g., breaking a block in an already-lit area)
+      for (const update of processedUpdates) {
+        const chunkCoords = ChunkUtils.mapVoxelToChunk(
+          update.voxel,
+          this.options.chunkSize
+        );
+        this.markChunkForRemesh(chunkCoords as Coords2);
+      }
+      // Also schedule processing since we're not going through the light worker path
+      this.scheduleDirtyChunkProcessing();
     }
 
     return updates.slice(processedCount);
@@ -5129,7 +5149,9 @@ export class World<T = any> extends Scene implements NetIntercept {
 
   private processNextLightBatch() {
     if (this.lightJobQueue.length === 0) return;
-    if (this.activeLightBatch !== null) return;
+    if (this.activeLightBatch !== null) {
+      return;
+    }
 
     const firstJob = this.lightJobQueue[0];
     const batchId = firstJob.batchId;
@@ -5232,7 +5254,9 @@ export class World<T = any> extends Scene implements NetIntercept {
         options: this.options,
       },
       buffers: arrayBuffers,
-      resolve: (result) => this.handleLightJobResult(job, result),
+      resolve: (result) => {
+        this.handleLightJobResult(job, result);
+      },
     });
   }
 
@@ -5311,7 +5335,9 @@ export class World<T = any> extends Scene implements NetIntercept {
     for (const [key, colorMap] of chunkResultsByColor) {
       const coords = allChunkCoords.get(key)!;
       const chunk = this.getChunkByCoords(coords[0], coords[1]);
-      if (!chunk) continue;
+      if (!chunk) {
+        continue;
+      }
 
       if (colorMap.size === 1) {
         const [color, lights] = colorMap.entries().next().value;
@@ -5323,6 +5349,7 @@ export class World<T = any> extends Scene implements NetIntercept {
       chunk.isDirty = true;
       this.markChunkForRemeshLevels(coords, minLevel, maxLevel);
     }
+    this.scheduleDirtyChunkProcessing();
   }
 
   private mergeSingleColorResult(
