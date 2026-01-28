@@ -1,0 +1,17 @@
+{
+  "name": "voxelize-wasm-mesher",
+  "type": "module",
+  "description": "WebAssembly wrapper for voxelize-mesher",
+  "version": "1.0.0",
+  "license": "MIT",
+  "files": [
+    "voxelize_wasm_mesher_bg.wasm",
+    "voxelize_wasm_mesher.js",
+    "voxelize_wasm_mesher.d.ts"
+  ],
+  "main": "voxelize_wasm_mesher.js",
+  "types": "voxelize_wasm_mesher.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
