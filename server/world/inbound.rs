@@ -1,4 +1,9 @@
 use super::*;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Counts rejected client voxel writes so the debug log can number them
+/// without spamming at a fixed rate.
+static CLIENT_VOXEL_UPDATE_REJECTED: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Serialize, Deserialize)]
 struct OnLoadRequest {
@@ -196,6 +201,23 @@ impl World {
     /// Handler for `Update` type messages.
     pub(super) fn on_update(&mut self, client_id: &str, data: Message) {
         let chunk_size = self.config().chunk_size;
+
+        if !self.config().allow_client_voxel_writes {
+            let voxels = data
+                .bulk_update
+                .as_ref()
+                .map(|bulk| bulk.vx.len())
+                .unwrap_or(data.updates.len());
+            if voxels > 0 {
+                let n = CLIENT_VOXEL_UPDATE_REJECTED.fetch_add(1, Ordering::Relaxed) + 1;
+                debug!(
+                    "rejected client voxel update #{n} from {client_id}: \
+                     {voxels} voxels (allow_client_voxel_writes=false)"
+                );
+            }
+            return;
+        }
+
         let mut chunks = self.chunks_mut();
 
         if let Some(bulk) = data.bulk_update {
