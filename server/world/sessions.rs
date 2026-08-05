@@ -226,22 +226,20 @@ impl World {
                 handler(self, client.entity);
             }
 
-            let mut should_delete_entity = true;
-
             {
-                let interactors = self.ecs.read_storage::<InteractorComp>();
+                // Safely get the physics handles (read borrow must end before
+                // the write-storage removals below)
+                let interactor_handles = {
+                    let interactors = self.ecs.read_storage::<InteractorComp>();
+                    interactors.get(client.entity).map(|interactor| {
+                        (
+                            interactor.body_handle().to_owned(),
+                            interactor.collider_handle().to_owned(),
+                        )
+                    })
+                };
 
-                // Safely get the interactor component, with error handling
-                let interactor_result = interactors
-                    .get(client.entity)
-                    .map(|interactor| interactor.to_owned());
-
-                if let Some(interactor) = interactor_result {
-                    let body_handle = interactor.body_handle().to_owned();
-                    let collider_handle = interactor.collider_handle().to_owned();
-
-                    drop(interactors);
-
+                if let Some((body_handle, collider_handle)) = interactor_handles {
                     {
                         let mut physics = self.physics_mut();
                         physics.unregister(&body_handle, &collider_handle);
@@ -251,37 +249,41 @@ impl World {
                         let mut interactors = self.ecs.write_storage::<InteractorComp>();
                         interactors.remove(client.entity);
                     }
-
-                    {
-                        let mut collisions = self.ecs.write_storage::<CollisionsComp>();
-                        collisions.remove(client.entity);
-                    }
-
-                    {
-                        let mut rigid_bodies = self.ecs.write_storage::<RigidBodyComp>();
-                        rigid_bodies.remove(client.entity);
-                    }
-
-                    {
-                        let mut clients = self.ecs.write_storage::<ClientFlag>();
-                        clients.remove(client.entity);
-                    }
                 } else {
-                    // If we can't find the interactor, the entity might already be deleted or invalid
-                    should_delete_entity = false;
+                    // No interactor: the physics body was never registered or
+                    // was already torn down. The entity must STILL be stripped
+                    // and deleted below — the old early-out here kept
+                    // ClientFlag + metadata alive forever, and the "zombie
+                    // peer" then appeared in every future join's INIT roster
+                    // and dirty sweep as a statue at its last position.
                     log::warn!(
-                        "Client entity for {} not found or already removed",
+                        "Client entity for {} has no interactor; stripping and deleting anyway",
                         client.id
                     );
                 }
+
+                // Strip peer-facing components on BOTH paths (no-op if absent)
+                {
+                    let mut collisions = self.ecs.write_storage::<CollisionsComp>();
+                    collisions.remove(client.entity);
+                }
+                {
+                    let mut rigid_bodies = self.ecs.write_storage::<RigidBodyComp>();
+                    rigid_bodies.remove(client.entity);
+                }
+                {
+                    let mut clients = self.ecs.write_storage::<ClientFlag>();
+                    clients.remove(client.entity);
+                }
             }
 
-            if should_delete_entity {
+            {
                 let entities = self.ecs.entities();
-
-                // Safe deletion with error handling
-                if let Err(e) = entities.delete(client.entity) {
-                    log::warn!("Error deleting client entity {}: {:?}", client.id, e);
+                if entities.is_alive(client.entity) {
+                    // Safe deletion with error handling
+                    if let Err(e) = entities.delete(client.entity) {
+                        log::warn!("Error deleting client entity {}: {:?}", client.id, e);
+                    }
                 }
             }
 
