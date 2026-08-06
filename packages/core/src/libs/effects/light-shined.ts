@@ -16,6 +16,8 @@ const waterTransmittance = new Color();
 
 type IgnoredType = abstract new (...args: never[]) => object;
 
+type LightUniform = { value: Color };
+
 export type LightShinedOptions = {
   /**
    * The lerping factor of the brightness of each mesh. Defaults to `0.1`.
@@ -208,10 +210,12 @@ export class LightShined {
         );
       };
       material.needsUpdate = true;
-      if (!obj.userData.lightUniforms) {
-        obj.userData.lightUniforms = [];
-      }
-      obj.userData.lightUniforms.push(lightUniform);
+      // The uniform's home is its material; the root's userData.lightUniforms
+      // list is DERIVED from the live subtree by rebuildLightUniformsFor.
+      // Pushing onto the root here instead made the list grow with every
+      // material the subtree ever saw (equips dispose + recreate materials),
+      // so long sessions lerped an ever-longer tail of dead uniforms.
+      material.userData.lightUniform = lightUniform;
       material.userData.lightEffectSetup = true;
     };
 
@@ -253,6 +257,7 @@ export class LightShined {
             target[prop] = value;
             if (prop === "needsUpdate" && value === true) {
               setupObjectAndChildren(object);
+              this.rebuildLightUniformsFor(object);
             }
             return true;
           },
@@ -266,6 +271,7 @@ export class LightShined {
           if (typeof prop === "string" && !isNaN(Number(prop)) && value) {
             setupObjectAndChildren(value);
             setupProxies(value);
+            this.rebuildLightUniformsFor(value);
           }
           return true;
         },
@@ -275,6 +281,47 @@ export class LightShined {
     };
 
     setupProxies(obj);
+
+    // Stamp the derived list on the tracked root (rebuild resolves roots by
+    // this marker) and bring it in sync with the subtree as it stands now.
+    if (!obj.userData.lightUniforms) {
+      obj.userData.lightUniforms = [];
+    }
+    this.rebuildLightUniformsFor(obj);
+  };
+
+  /**
+   * Rebuild the derived per-root uniform list from the materials currently
+   * present in the tracked root's subtree. Runs after every setup pass
+   * (initial add, material needsUpdate, child attachment), so uniforms whose
+   * materials have left the subtree are dropped instead of being driven
+   * forever. The owning root is resolved by walking UP from the changed node
+   * at call time — a cached object that migrates between two lit characters
+   * lands in the list of whichever root it currently sits under.
+   */
+  private rebuildLightUniformsFor = (node: Object3D) => {
+    let root: Object3D | null = null;
+    let cur: Object3D | null = node;
+    while (cur) {
+      if (cur.userData.lightUniforms) root = cur;
+      cur = cur.parent;
+    }
+    if (!root) return;
+
+    const next: LightUniform[] = [];
+    const seen = new Set<LightUniform>();
+    root.traverse((o) => {
+      if (!(o instanceof Mesh)) return;
+      const materials = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of materials) {
+        const uniform = m?.userData?.lightUniform as LightUniform | undefined;
+        if (uniform && !seen.has(uniform)) {
+          seen.add(uniform);
+          next.push(uniform);
+        }
+      }
+    });
+    root.userData.lightUniforms = next;
   };
 
   private updateObject = (obj: Object3D, color: Color) => {

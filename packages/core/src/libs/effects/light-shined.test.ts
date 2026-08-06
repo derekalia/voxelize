@@ -100,6 +100,33 @@ describe("LightShined proxy idempotency", () => {
     expect(root.userData.lightUniforms.length).toBeGreaterThan(0);
   });
 
+  it("purges uniforms of materials that left the subtree", () => {
+    const ls = makeLightShined();
+    const { root, torso } = makeRig();
+
+    ls.add(root);
+    const bodyCount = root.userData.lightUniforms.length;
+    expect(bodyCount).toBe(3); // head + armL + armR
+
+    // Dispose-and-recreate equip pattern: every swap attaches a FRESH mesh
+    // with a FRESH material (weapon models are rebuilt per equip). Before
+    // the derived-list fix, each iteration leaked one uniform into the
+    // root's list, which update() then lerped forever.
+    let current: Mesh | null = null;
+    for (let i = 0; i < 20; i++) {
+      if (current) torso.remove(current);
+      current = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+      torso.add(current);
+    }
+
+    // Bounded: the 3 body materials plus the one currently-held item.
+    expect(root.userData.lightUniforms.length).toBe(bodyCount + 1);
+    // The live item's uniform is driven; the removed ones are gone.
+    const currentUniform = (current!.material as MeshBasicMaterial).userData
+      .lightUniform;
+    expect(root.userData.lightUniforms).toContain(currentUniform);
+  });
+
   it("marks justChanged only when an object rejoins the update list", () => {
     const ls = makeLightShined();
     const { root } = makeRig();
