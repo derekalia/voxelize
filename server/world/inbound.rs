@@ -303,7 +303,23 @@ impl World {
         let client_ent = self.clients().get(client_id).map(|c| c.entity.to_owned());
 
         data.events.into_iter().for_each(|event| {
-            if !self.event_handles.contains_key(&event.name.to_lowercase()) {
+            // Resolve the handle ONCE, case-insensitively.
+            //
+            // `set_event_handle` stores keys lowercased (handles.rs), so the
+            // guard below used to test `name.to_lowercase()` while the lookup
+            // that followed used the raw `name` and `.unwrap()`ed it. Any client
+            // sending a registered event under different casing therefore passed
+            // the guard and then unwrapped a `None`. `on_event` is not inside
+            // the `catch_unwind` that wraps method dispatch, and a panic on the
+            // world thread poisons the world lock — so that was one message from
+            // any client to a permanently dead world. Same failure class as the
+            // case-insensitive method-dispatch fix, which did not cover events.
+            let handle = self
+                .event_handles
+                .get(&event.name.to_lowercase())
+                .map(|handle| handle.to_owned());
+
+            if handle.is_none() {
                 let location = client_ent.and_then(|ent| {
                     self.read_component::<CurrentChunkComp>()
                         .get(ent)
@@ -327,7 +343,7 @@ impl World {
                 return;
             }
 
-            let handle = self.event_handles.get(&event.name).unwrap().to_owned();
+            let handle = handle.expect("handle presence checked above");
             handle(self, client_id, &event.payload);
         });
     }
