@@ -110,15 +110,30 @@ export class LightShined {
   /**
    * Add an object to be affected by this effect.
    *
+   * Idempotent: material shader hooks are guarded per material and the
+   * change-detection Proxies are guarded per node, so repeated adds (e.g. a
+   * cull system toggling membership every time an object crosses a
+   * visibility boundary) only restore membership in the per-frame update
+   * list instead of stacking another Proxy layer per call.
+   *
    * @param obj A THREE.JS object to be shined on.
    */
   add = (obj: Object3D) => {
+    if (!this.list.has(obj)) {
+      // (Re)joining the update list: snap to the current light color on the
+      // next update instead of lerping from whatever stale state remains.
+      obj.userData.justChanged = true;
+    }
     this.list.add(obj);
     this.setupLightMaterials(obj);
   };
 
   /**
-   * Remove an object from being affected by this effect
+   * Remove an object from being affected by this effect.
+   *
+   * Only removes the object from the per-frame update list; the shader
+   * hooks and Proxies installed by {@link LightShined.add} stay on the
+   * object, so a later re-add is a pure membership toggle.
    *
    * @param obj The object to be removed from the effect.
    */
@@ -220,6 +235,18 @@ export class LightShined {
 
     // Setup proxies to detect changes
     const setupProxies = (object: Object3D) => {
+      // One Proxy layer per node, ever. This function runs again for nodes
+      // it has already wrapped: on every re-add of the object, and — more
+      // insidiously — through the children set trap below, which fires for
+      // each shifted sibling when a child is spliced out (Object3D.remove)
+      // and for cached objects re-added to a parent. Without this guard,
+      // every visit stacked a fresh Proxy over material and children, so
+      // material property access got progressively slower over a session.
+      // The layer count doubles as a diagnostic: every node in a lit
+      // subtree should read exactly 1.
+      if ((object.userData.lightShinedProxyLayers ?? 0) > 0) return;
+      object.userData.lightShinedProxyLayers = 1;
+
       if (isMesh(object)) {
         object.material = new Proxy(object.material, {
           set: (target, prop, value) => {
@@ -236,7 +263,7 @@ export class LightShined {
       object.children = new Proxy(object.children, {
         set: (target, prop, value) => {
           target[prop] = value;
-          if (typeof prop === "string" && !isNaN(Number(prop))) {
+          if (typeof prop === "string" && !isNaN(Number(prop)) && value) {
             setupObjectAndChildren(value);
             setupProxies(value);
           }
