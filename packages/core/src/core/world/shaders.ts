@@ -280,6 +280,7 @@ uniform float uShowGreedyDebug;
 uniform vec3 uAmbientColor;
 uniform float uMinLightLevel;
 uniform float uBaseAmbient;
+uniform float uSkyBounce;
 uniform vec4 uFaceShades;
 
 uniform sampler2D uShadowMap0;
@@ -591,8 +592,12 @@ vec3 downTransmit = mix(
 vec3 underwaterFill = ${WATER_SURFACE_SCATTER_GLSL}
   * (${WATER_OPTICS.scatterFillSunStrength.toFixed(4)} * uSunlightIntensity + ${WATER_OPTICS.scatterFillBase.toFixed(4)})
   * downTransmit * isFragmentUnderwater;
+// uSkyBounce (default 1.0) scales the fixed sky-bounce ambient only. It is
+// the sole light on sky-exposed surfaces once the sun is down, so lowering
+// it gives a genuinely dark night WITHOUT touching torch/cone light, which
+// screen-blends in further below.
 vec3 globalAmbient =
-  (vec3(0.025, 0.03, 0.04) * sunVisibility + uAmbientColor * ambientFloor) * downTransmit;
+  (vec3(0.025, 0.03, 0.04) * sunVisibility * uSkyBounce + uAmbientColor * ambientFloor) * downTransmit;
 
 float ambientOcclusion = mix(0.72, 1.0, shadow);
 float tunnelDarkening = mix(ambientFloor, 1.0, sunVisibility);

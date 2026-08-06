@@ -185,6 +185,7 @@ export function makeChunkShaderMaterial(
       uFaceShades: chunksUniforms.faceShades,
       uMinLightLevel: chunksUniforms.minLightLevel,
       uBaseAmbient: chunksUniforms.baseAmbient,
+      uSkyBounce: chunksUniforms.skyBounce,
       uFogNear: chunksUniforms.fogNear,
       uFogFar: chunksUniforms.fogFar,
       uFogColor: chunksUniforms.fogColor,

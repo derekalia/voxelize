@@ -75,6 +75,14 @@ export class ChunkRenderer {
     faceShades: { value: Vector4 };
     minLightLevel: { value: number };
     baseAmbient: { value: number };
+    /**
+     * Scales the fixed sky-bounce ambient that lights sky-exposed surfaces
+     * (see uSkyBounce in the chunk fragment shader). 1 = default look.
+     * Lower it at night for a dark-outdoors look where light sources
+     * (torches, cones) still read at full strength, since those blend in
+     * after this term.
+     */
+    skyBounce: { value: number };
     sunlightIntensity: { value: number };
     time: { value: number };
     lightIntensityAdjustment: { value: number };
@@ -114,6 +122,7 @@ export class ChunkRenderer {
     faceShades: { value: new Vector4(0.7, 0.85, 0.62, 1.0) },
     minLightLevel: { value: 0.04 },
     baseAmbient: { value: 0.005 },
+    skyBounce: { value: 1 },
     sunlightIntensity: { value: 1 },
     time: { value: 0 },
     lightIntensityAdjustment: { value: 0.8 },
