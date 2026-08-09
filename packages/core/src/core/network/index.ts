@@ -495,13 +495,6 @@ export class Network {
       return;
     }
 
-    // Queued packets must not overtake a pending INIT: everything that
-    // arrives during a (re)join is processed only after the INIT handshake
-    // resets session state.
-    if (this.waitingForInit) {
-      return;
-    }
-
     const queueLength = this.packetQueue.length;
     const backlogFactor = Math.min(
       this.options.maxBacklogFactor,
@@ -536,6 +529,26 @@ export class Network {
       results.sort((a, b) => a.idx - b.idx);
       for (const { msgs } of results) {
         for (const message of msgs) {
+          // While a (re)join is pending, the only messages that may apply are
+          // the INIT ack (or a terminal ERROR). Everything staged before the
+          // INIT belongs to the previous session generation and is dropped —
+          // the handshake re-snapshots all of it (entities, peers, chunks).
+          //
+          // This scan is what makes the handshake self-healing. The
+          // decodePriority fast path races the INIT against regular traffic
+          // and gets exactly ONE shot per join request: if any other packet
+          // (a peer update, a chunk load) arrives first, the INIT lands here
+          // in the queue instead. Before this scan existed, a lost race
+          // wedged the session — sync() and flush() both gated on
+          // waitingForInit, so the client applied nothing and sent nothing
+          // for joinRetryTimeout-multiples (observed: ~70s of frozen state
+          // and queued method calls) until a 10s join retry happened to win
+          // the race during a traffic lull.
+          if (this.waitingForInit) {
+            if (message.type !== "INIT" && message.type !== "ERROR") {
+              continue;
+            }
+          }
           this.onMessage(message);
         }
       }
@@ -913,6 +926,11 @@ export class Network {
         return;
       }
       if (this.waitingForInit) {
+        // Keep draining the inbound queue while the ack is pending: the INIT
+        // may have lost the decodePriority race and be sitting in the queue
+        // (see sync()'s pending-join scan). Commands still hold until the
+        // handshake completes — only sync runs here, never flush.
+        this.sync();
         this.maybeRetryJoin();
         return;
       }
