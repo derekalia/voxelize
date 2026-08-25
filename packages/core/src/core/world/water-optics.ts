@@ -134,8 +134,8 @@ export const WATER_OPTICS = Object.freeze({
    * is subpixel at typical resolutions, so evaluating it only costs ALU and
    * reads as specular shimmer.
    */
-  mediumWaveFadeStartBlocks: 64,
-  mediumWaveFadeEndBlocks: 128,
+  mediumWaveFadeStartBlocks: 96,
+  mediumWaveFadeEndBlocks: 192,
 
   /**
    * Distance band (blocks) over which the large wave octave (~3-block
@@ -156,14 +156,14 @@ export const WATER_OPTICS = Object.freeze({
    * supplies it statistically, keeping far water the same tint-dominant
    * shade it had when the octave was evaluated.
    */
-  distantFresnelFactor: 0.55,
+  distantFresnelFactor: 0.7,
 
   /**
    * Distance band (blocks) over which the surface ripple/sparkle octaves
    * fade out, for the same subpixel reason as the medium wave band.
    */
-  rippleFadeStartBlocks: 48,
-  rippleFadeEndBlocks: 96,
+  rippleFadeStartBlocks: 96,
+  rippleFadeEndBlocks: 192,
 
   /**
    * Analytic directional slopes for the surface normal. Keeping these in
@@ -171,9 +171,9 @@ export const WATER_OPTICS = Object.freeze({
    * finite-difference simplex stack (eleven 3D noise evaluations).
    */
   surfaceNormalWaves: [
-    { direction: [0.8, 0.6], frequency: 0.32, speed: 0.25, slope: 0.11 },
-    { direction: [-0.6, 0.8], frequency: 0.58, speed: -0.18, slope: 0.07 },
-    { direction: [0.7, -0.7], frequency: 1.4, speed: 0.45, slope: 0.045 },
+    { direction: [0.8, 0.6], frequency: 0.32, speed: 0.25, slope: 0.16 },
+    { direction: [-0.6, 0.8], frequency: 0.61, speed: -0.18, slope: 0.1 },
+    { direction: [0.7, -0.7], frequency: 1.4, speed: 0.45, slope: 0.065 },
   ],
   surfaceRippleWaves: [
     { direction: [1.0, 0.35], frequency: 1.8, speed: 0.9 },
