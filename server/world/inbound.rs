@@ -281,7 +281,15 @@ impl World {
         let client_ent = self.clients().get(client_id).map(|c| c.entity.to_owned());
 
         data.events.into_iter().for_each(|event| {
-            if !self.event_handles.contains_key(&event.name.to_lowercase()) {
+            // Lowercase ONCE and use the same key for both the membership
+            // check and the lookup below. Handlers are registered lowercased
+            // (handles.rs set_event_handle), so looking up the raw name and
+            // unwrapping panicked whenever a client sent a registered event
+            // with any uppercase letter (e.g. "Damage") — a remote crash-DoS.
+            // Mirrors how on_method already keys methods. (voxi carry, not
+            // upstream — see Cargo.toml / engine-fork-divergence.md.)
+            let handle_key = event.name.to_lowercase();
+            if !self.event_handles.contains_key(&handle_key) {
                 let location = client_ent.and_then(|ent| {
                     self.read_component::<CurrentChunkComp>()
                         .get(ent)
@@ -305,7 +313,7 @@ impl World {
                 return;
             }
 
-            let handle = self.event_handles.get(&event.name).unwrap().to_owned();
+            let handle = self.event_handles.get(&handle_key).unwrap().to_owned();
             handle(self, client_id, &event.payload);
         });
     }
